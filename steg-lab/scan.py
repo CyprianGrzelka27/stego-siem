@@ -25,9 +25,10 @@ LOG_FILE = "stego_scan.log"
 
 WEIGHTS = {"chi_square": 0.45, "rs_analysis": 0.40, "shannon_entropy": 0.15}
 
-LOSSY_FORMATS    = {".jpg", ".jpeg", ".jfif", ".webp"}
+LOSSY_FORMATS     = {".jpg", ".jpeg", ".jfif", ".webp"}
 SUPPORTED_FORMATS = {".png", ".bmp", ".tiff", ".tif", ".pgm",
                      ".jpg", ".jpeg", ".jfif", ".webp"}
+VIDEO_FORMATS     = {".mp4", ".avi", ".mkv", ".mov", ".webm"}
 
 
 def scan(filepath: str) -> dict:
@@ -35,6 +36,11 @@ def scan(filepath: str) -> dict:
         return {"error": f"Plik nie istnieje: {filepath}"}
 
     ext = os.path.splitext(filepath)[1].lower()
+
+    if ext in VIDEO_FORMATS:
+        from video_detector import VideoDetector
+        return VideoDetector().analyze(filepath)
+
     if ext not in SUPPORTED_FORMATS:
         return {"error": f"Nieobsługiwany format: '{ext}'. Obsługiwane: {', '.join(sorted(SUPPORTED_FORMATS))}"}
 

@@ -191,27 +191,30 @@ class RSAnalysisDetector:
         return result
 
     def _compute_rs_groups(self, pixels: np.ndarray):
-        """Pętla główna — klasyfikuje każdy blok jako R, S lub U (Unusable)."""
+        """Wektoryzowana klasyfikacja bloków jako R, S lub U (Unusable)."""
         flat    = pixels.flatten()
         n_blocks = len(flat) // self.block_size
-        rm = sm = r_m = s_m = 0
 
-        for i in range(n_blocks):
-            start = i * self.block_size
-            block = flat[start: start + self.block_size].copy()
-            f0    = self._noise_measure(block)
+        blocks = flat[:n_blocks * self.block_size].reshape(n_blocks, self.block_size)
 
-            masked_M = self._apply_mask(block, negative=False)
-            fM = self._noise_measure(masked_M)
-            if fM > f0:   rm  += 1
-            elif fM < f0: sm  += 1
-            # else: Unusable — pomijamy
+        f0 = np.sum(np.abs(np.diff(blocks, axis=1)), axis=1)
 
-            masked_N = self._apply_mask(block, negative=True)
-            fN = self._noise_measure(masked_N)
-            if fN > f0:   r_m += 1
-            elif fN < f0: s_m += 1
-            # else: Unusable — pomijamy
+        masked_M = blocks.copy()
+        masked_M[:, 0::2] ^= 1
+        fM = np.sum(np.abs(np.diff(masked_M, axis=1)), axis=1)
+
+        masked_N = blocks.copy()
+        masked_N[:, 0::2] = np.where(
+            masked_N[:, 0::2] % 2 == 0,
+            np.maximum(masked_N[:, 0::2] - 1, 0),
+            np.minimum(masked_N[:, 0::2] + 1, 255)
+        )
+        fN = np.sum(np.abs(np.diff(masked_N, axis=1)), axis=1)
+
+        rm = np.sum(fM > f0)
+        sm = np.sum(fM < f0)
+        r_m = np.sum(fN > f0)
+        s_m = np.sum(fN < f0)
 
         return rm, sm, r_m, s_m
 
