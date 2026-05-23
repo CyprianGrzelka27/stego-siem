@@ -13,9 +13,11 @@ build/
 *.log
 stego_scan.log
 
+# Pliki JSON (generowane automatycznie, próbki sieciowe)
+*.json
+
 # Wyniki testów (generowane automatycznie)
 steg-lab/wyniki_testy.csv
-steg-lab/wyniki_testy.json
 
 # Pliki binarne — obrazy, audio, wideo (żadne nie należą do repozytorium)
 *.png
