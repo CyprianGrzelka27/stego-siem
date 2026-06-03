@@ -1,95 +1,56 @@
 version: '3.8'
 
 services:
-
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
     container_name: elasticsearch
     environment:
-      - node.name=es01
-      - cluster.name=stego-siem
       - discovery.type=single-node
-      - bootstrap.memory_lock=true
-      - xpack.security.enabled=false        # wyłączone dla dev — łatwiej testować
-      - xpack.security.http.ssl.enabled=false
-      - ES_JAVA_OPTS=-Xms2g -Xmx2g         # 2GB heap — wystarczy dla dev/testów
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-    volumes:
-      - es_data:/usr/share/elasticsearch/data
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
     ports:
       - "9200:9200"
-    networks:
-      - elk
     healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-
-  logstash:
-    image: docker.elastic.co/logstash/logstash:8.13.0
-    container_name: logstash
-    environment:
-      - LS_JAVA_OPTS=-Xms512m -Xmx512m     # 512MB — wystarczy dla pipeline detekcji
-    volumes:
-      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
-      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
-    ports:
-      - "5044:5044"   # Beats input
-      - "5000:5000"   # TCP input (Python moduł → Logstash)
-      - "9600:9600"   # Logstash API
+      test: curl -s http://localhost:9200 >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
-      - elk
-    depends_on:
-      elasticsearch:
-        condition: service_healthy
+      - stego-siem
 
   kibana:
-    image: docker.elastic.co/kibana/kibana:8.13.0
+    image: docker.elastic.co/kibana/kibana:8.11.0
     container_name: kibana
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     ports:
-      - "5601:5601"
-    networks:
-      - elk
+      - "8080:5601"
     depends_on:
       elasticsearch:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:5601/api/status | grep -q 'available'"]
-      interval: 20s
-      timeout: 10s
-      retries: 10
+      test: curl -s http://localhost:5601/api/status >/dev/null || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - stego-siem
 
   filebeat:
-    image: docker.elastic.co/beats/filebeat:8.13.0
+    image: docker.elastic.co/beats/filebeat:8.11.0
     container_name: filebeat
     user: root
-    environment:
-      - strict.perms=false
+    command: filebeat -e -strict.perms=false
     volumes:
       - ./elk/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
       - ./stego_events.ndjson:/stego_events.ndjson:ro
-    command: filebeat -e -strict.perms=false
-    networks:
-      - elk
     depends_on:
       elasticsearch:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:5066/ || true"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
-
-volumes:
-  es_data:
-    driver: local
+    networks:
+      - stego-siem
 
 networks:
-  elk:
+  stego-siem:
     driver: bridge
