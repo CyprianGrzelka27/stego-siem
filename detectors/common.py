@@ -46,6 +46,9 @@ class SharedResult:
     # Detector-specific details (structure varies by source_module)
     detectors: Dict[str, Any] = field(default_factory=dict)
 
+    # Ordered list of rules that exceeded their threshold and contributed to the verdict
+    triggered_rules: list = field(default_factory=list)
+
     # Metadata
     warnings: list = field(default_factory=list)
 
@@ -62,7 +65,7 @@ class SharedResult:
         "timestamp", "event_type", "source_module",
         "file_name", "file_path", "file_size_bytes", "file_format",
         "verdict", "risk_score", "detectors_triggered", "detectors_total",
-        "detectors", "warnings", "network_channel",
+        "detectors", "triggered_rules", "warnings", "network_channel",
     )
 
     def to_json_dict(self) -> dict:

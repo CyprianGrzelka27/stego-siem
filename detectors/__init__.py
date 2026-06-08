@@ -4,6 +4,7 @@ from .common import SharedResult, get_verdict
 from .image import ImageDetector
 from .audio import AudioDetector
 from .network import NetworkDetector
+from .video import VideoDetector
 
 __all__ = [
     "SharedResult",
@@ -11,4 +12,5 @@ __all__ = [
     "ImageDetector",
     "AudioDetector",
     "NetworkDetector",
+    "VideoDetector",
 ]

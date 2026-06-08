@@ -91,6 +91,28 @@ class AudioDetector:
 
             detectors_triggered = 1 if is_suspicious else 0
 
+            triggered_rules = []
+            parity_deviation = audio_result.get("score", 0.0)
+            if is_suspicious:
+                triggered_rules.append({
+                    "rule": "group_parity",
+                    "metric": "parity_deviation",
+                    "value": round(parity_deviation, 4),
+                    "threshold": 0.05,
+                    "direction": "above",
+                    "message": f"GroupParity: odchylenie={parity_deviation:.4f} > 0.05 — bity LSB niespójne w grupach",
+                })
+            p_value_parity = audio_result.get("p_value_parity")
+            if p_value_parity is not None and p_value_parity < 0.05:
+                triggered_rules.append({
+                    "rule": "parity_chi_test",
+                    "metric": "p_value_parity",
+                    "value": round(p_value_parity, 4),
+                    "threshold": 0.05,
+                    "direction": "below",
+                    "message": f"Chi-kwadrat parytetu: p={p_value_parity:.4f} < 0.05 — LSB nie są losowe",
+                })
+
             return SharedResult(
                 timestamp=now_iso(),
                 source_module="audio",
@@ -102,6 +124,7 @@ class AudioDetector:
                 risk_score=risk_score,
                 detectors_triggered=detectors_triggered,
                 detectors_total=1,
+                triggered_rules=triggered_rules,
                 detectors={
                     "audio_group_parity": {
                         "confidence": confidence,

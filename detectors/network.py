@@ -50,6 +50,7 @@ class NetworkDetector:
 
             dns_result = self.dns_detector.analyze(queries)
             aggregated = SteganographicCostAggregator().aggregate({"dns": dns_result})
+            triggered_rules = self._build_dns_triggered_rules(dns_result)
 
             return SharedResult(
                 timestamp=now_iso(),
@@ -62,6 +63,7 @@ class NetworkDetector:
                 risk_score=int(aggregated.get("risk_score", 0)),
                 detectors_triggered=aggregated.get("detectors_triggered", 0),
                 detectors_total=1,
+                triggered_rules=triggered_rules,
                 detectors={
                     "dns_tunneling": {
                         "confidence": dns_result.get("confidence", 0.0),
@@ -87,6 +89,66 @@ class NetworkDetector:
                 errors=f"DNS analysis failed: {str(e)}",
                 source_module="network",
             )
+
+    def _build_dns_reason(self, dns_result: dict) -> str:
+        parts = []
+        entropy = dns_result.get("entropy")
+        if entropy is not None and entropy > 3.5:
+            parts.append(f"entropia subdomeny {entropy:.2f} > 3.5")
+        subdomain_length = dns_result.get("subdomain_length")
+        if subdomain_length is not None and subdomain_length > 30:
+            parts.append(f"śr. długość {subdomain_length:.1f} > 30")
+        base32_matches = dns_result.get("base32_matches", 0)
+        if base32_matches and base32_matches > 0:
+            parts.append(f"wzorce base32: {base32_matches}")
+        query_rate = dns_result.get("query_rate", 0)
+        if query_rate and query_rate > 10:
+            parts.append(f"częstotliwość zapytań {query_rate:.1f} > 10")
+        return "; ".join(parts) if parts else "brak przekroczonych progów"
+
+    def _build_dns_triggered_rules(self, dns_result: dict) -> list:
+        rules = []
+        entropy = dns_result.get("entropy")
+        if entropy is not None and entropy > 3.5:
+            rules.append({
+                "rule": "dns_entropy",
+                "metric": "subdomain_entropy",
+                "value": round(float(entropy), 4),
+                "threshold": 3.5,
+                "direction": "above",
+                "message": f"Entropia subdomeny {entropy:.4f} > 3.5 — wysoka losowość nazw DNS",
+            })
+        subdomain_length = dns_result.get("subdomain_length")
+        if subdomain_length is not None and subdomain_length > 30:
+            rules.append({
+                "rule": "dns_subdomain_length",
+                "metric": "subdomain_length",
+                "value": round(float(subdomain_length), 4),
+                "threshold": 30,
+                "direction": "above",
+                "message": f"Śr. długość subdomeny {subdomain_length:.1f} > 30 — podejrzanie długie nazwy",
+            })
+        base32_matches = dns_result.get("base32_matches") or 0
+        if base32_matches > 0:
+            rules.append({
+                "rule": "dns_base32",
+                "metric": "base32_matches",
+                "value": round(float(base32_matches), 4),
+                "threshold": 0,
+                "direction": "above",
+                "message": f"Wzorce base32: {base32_matches} — kodowanie danych w subdomenach",
+            })
+        query_rate = dns_result.get("query_rate") or 0
+        if query_rate > 10:
+            rules.append({
+                "rule": "dns_query_rate",
+                "metric": "query_rate",
+                "value": round(float(query_rate), 4),
+                "threshold": 10,
+                "direction": "above",
+                "message": f"Częstotliwość zapytań {query_rate:.2f}/s > 10 — podejrzanie wysoka",
+            })
+        return rules
 
     def analyze_pcap(self, filepath: str) -> SharedResult:
         """Analyze PCAP/PCAPng capture for DNS tunneling, ICMP tunneling, and IAT channels."""
@@ -166,6 +228,54 @@ class NetworkDetector:
 
         aggregated = SteganographicCostAggregator().aggregate(detector_results)
 
+        triggered_rules = []
+        if "dns" in detector_results:
+            triggered_rules.extend(self._build_dns_triggered_rules(detector_results["dns"]))
+        icmp_result = detector_results.get("icmp", {})
+        if icmp_result.get("detected"):
+            payload_variance = icmp_result.get("payload_variance")
+            if payload_variance is not None:
+                triggered_rules.append({
+                    "rule": "icmp_payload",
+                    "metric": "payload_variance",
+                    "value": round(float(payload_variance), 4),
+                    "threshold": 0.0,
+                    "direction": "above",
+                    "message": f"ICMP payload_variance={payload_variance:.4f} — podejrzana zawartość pola payload",
+                })
+            else:
+                conf = icmp_result.get("confidence", 0.0)
+                triggered_rules.append({
+                    "rule": "icmp_tunneling",
+                    "metric": "confidence",
+                    "value": round(float(conf), 4),
+                    "threshold": 0.5,
+                    "direction": "above",
+                    "message": f"ICMP tunelowanie: confidence={conf:.4f} > 0.5",
+                })
+        iat_result = detector_results.get("iat", {})
+        if iat_result.get("detected"):
+            periodicity_score = iat_result.get("periodicity_score")
+            if periodicity_score is not None:
+                triggered_rules.append({
+                    "rule": "iat_periodicity",
+                    "metric": "periodicity_score",
+                    "value": round(float(periodicity_score), 4),
+                    "threshold": 0.5,
+                    "direction": "above",
+                    "message": f"IAT periodicity_score={periodicity_score:.4f} > 0.5 — regularne odstępy między pakietami",
+                })
+            else:
+                conf = iat_result.get("confidence", 0.0)
+                triggered_rules.append({
+                    "rule": "iat_steganography",
+                    "metric": "confidence",
+                    "value": round(float(conf), 4),
+                    "threshold": 0.5,
+                    "direction": "above",
+                    "message": f"IAT steganografia: confidence={conf:.4f} > 0.5",
+                })
+
         return SharedResult(
             timestamp=now_iso(),
             source_module="network",
@@ -178,7 +288,24 @@ class NetworkDetector:
             detectors_triggered=aggregated.get("detectors_triggered", 0),
             detectors_total=len(detector_results),
             warnings=warnings,
-            detectors=aggregated.get("detectors", {}),
+            triggered_rules=triggered_rules,
+            detectors={
+                **aggregated.get("detectors", {}),
+                **(
+                    {"dns_tunneling": {
+                        "confidence":           detector_results["dns"].get("confidence", 0.0),
+                        "detected":             detector_results["dns"].get("detected", False),
+                        "entropy":              detector_results["dns"].get("entropy"),
+                        "subdomain_length":     detector_results["dns"].get("subdomain_length"),
+                        "subdomain_alphabet":   detector_results["dns"].get("subdomain_alphabet"),
+                        "base32_matches":       detector_results["dns"].get("base32_matches", 0),
+                        "query_rate":           detector_results["dns"].get("query_rate", 0),
+                        "domain_concentration": detector_results["dns"].get("domain_concentration"),
+                        "reason":               self._build_dns_reason(detector_results["dns"]),
+                    }}
+                    if "dns" in detector_results else {}
+                ),
+            },
             network_channel="pcap",
         )
 

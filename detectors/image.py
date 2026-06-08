@@ -125,6 +125,38 @@ class ImageDetector:
             # Determine verdict
             verdict = get_verdict(triggered, risk, detectors_total=3)
 
+            triggered_rules = []
+            if chi_result.get("detected"):
+                p_val = chi_result.get("p_value") or 0.0
+                triggered_rules.append({
+                    "rule": "chi_square",
+                    "metric": "p_value",
+                    "value": round(p_val, 4),
+                    "threshold": 0.95,
+                    "direction": "above",
+                    "message": f"Chi²: p={p_val:.4f} > 0.95 — pary PoV wyrównane, wskazuje fill ≥75%",
+                })
+            if rs_result.get("detected"):
+                rs_diff = rs_result.get("rs_difference") or 0.0
+                triggered_rules.append({
+                    "rule": "rs_analysis",
+                    "metric": "rs_diff",
+                    "value": round(rs_diff, 4),
+                    "threshold": -0.02,
+                    "direction": "below",
+                    "message": f"RS: rs_diff={rs_diff:.4f} < -0.02 — asymetria Regular/Singular, wskazuje fill ≥25%",
+                })
+            if ent_result.get("detected"):
+                ent_val = ent_result.get("entropy") or 0.0
+                triggered_rules.append({
+                    "rule": "shannon_entropy",
+                    "metric": "lsb_entropy",
+                    "value": round(ent_val, 4),
+                    "threshold": 7.8,
+                    "direction": "above",
+                    "message": f"Entropia: H={ent_val:.4f} > 7.8 bit — LSB plane bliskie losowym",
+                })
+
             return SharedResult(
                 timestamp=now_iso(),
                 source_module="image",
@@ -137,6 +169,7 @@ class ImageDetector:
                 detectors_triggered=triggered,
                 detectors_total=3,
                 warnings=warnings,
+                triggered_rules=triggered_rules,
                 detectors={
                     "chi_square": {
                         "p_value": chi_result.get("p_value"),

@@ -213,6 +213,37 @@ class VideoDetector:
         else:
             result["verdict"] = "SUSPICIOUS"
 
+        # ── triggered_rules ───────────────────────────────────────────
+        triggered_rules = []
+        if chi_rate > 0:
+            triggered_rules.append({
+                "rule": "chi_square_frame",
+                "metric": "chi_detection_rate",
+                "value": round(chi_rate, 4),
+                "threshold": 0.5,
+                "direction": "above" if chi_rate > 0.5 else "below",
+                "message": f"Chi²: {chi_rate:.4f} klatek wykrytych ({int(chi_rate * n)}/{n}) — próg 0.5",
+            })
+        if rs_rate > 0:
+            triggered_rules.append({
+                "rule": "rs_frame",
+                "metric": "rs_detection_rate",
+                "value": round(rs_rate, 4),
+                "threshold": 0.4,
+                "direction": "above" if rs_rate > 0.4 else "below",
+                "message": f"RS: {rs_rate:.4f} klatek wykrytych ({int(rs_rate * n)}/{n}) — próg 0.4",
+            })
+        if temporal_suspicious:
+            triggered_rules.append({
+                "rule": "temporal_consistency",
+                "metric": "temporal_variance",
+                "value": round(result.get("temporal_variance") or 0.0, 6),
+                "threshold": 0.01,
+                "direction": "below",
+                "message": f"Wariancja temporalna: {result.get('temporal_variance', 0.0):.6f} < 0.01 przy chi_rate > 0.5",
+            })
+        result["triggered_rules"] = triggered_rules
+
         return result
 
     def _analyze_audio_track(self, video_path: str):
