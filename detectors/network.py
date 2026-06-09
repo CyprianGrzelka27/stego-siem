@@ -150,6 +150,153 @@ class NetworkDetector:
             })
         return rules
 
+    def analyze_icmp_json(self, filepath: str) -> SharedResult:
+        """Analyze ICMP packets from JSON file."""
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                packets = json.load(f)
+            if not isinstance(packets, list):
+                packets = [packets]
+
+            icmp_result = self.icmp_detector.analyze(packets)
+            aggregated = SteganographicCostAggregator().aggregate({"icmp": icmp_result})
+
+            triggered_rules = []
+            if icmp_result.get("detected"):
+                payload_variance = icmp_result.get("payload_variance")
+                if payload_variance is not None:
+                    triggered_rules.append({
+                        "rule": "icmp_payload",
+                        "metric": "payload_variance",
+                        "value": round(float(payload_variance), 4),
+                        "threshold": 0.0,
+                        "direction": "above",
+                        "message": f"ICMP payload_variance={payload_variance:.4f} — podejrzana zawartość pola payload",
+                    })
+                else:
+                    conf = icmp_result.get("confidence", 0.0)
+                    triggered_rules.append({
+                        "rule": "icmp_tunneling",
+                        "metric": "confidence",
+                        "value": round(float(conf), 4),
+                        "threshold": 0.5,
+                        "direction": "above",
+                        "message": f"ICMP tunelowanie: confidence={conf:.4f} > 0.5",
+                    })
+
+            return SharedResult(
+                timestamp=now_iso(),
+                source_module="network",
+                file_name=os.path.basename(filepath),
+                file_path=os.path.abspath(filepath),
+                file_size_bytes=os.path.getsize(filepath),
+                file_format="JSON",
+                verdict=aggregated.get("verdict", "CLEAN"),
+                risk_score=int(aggregated.get("risk_score", 0)),
+                detectors_triggered=aggregated.get("detectors_triggered", 0),
+                detectors_total=1,
+                triggered_rules=triggered_rules,
+                detectors={
+                    "icmp_tunneling": {
+                        "confidence": icmp_result.get("confidence", 0.0),
+                        "detected": icmp_result.get("detected", False),
+                        "payload_variance": icmp_result.get("payload_variance"),
+                        "packet_count": icmp_result.get("packet_count"),
+                    },
+                },
+                network_channel="icmp",
+            )
+
+        except Exception as e:
+            return SharedResult(
+                timestamp=now_iso(),
+                file_name=os.path.basename(filepath),
+                file_path=os.path.abspath(filepath),
+                verdict="CLEAN",
+                risk_score=0,
+                errors=f"ICMP analysis failed: {str(e)}",
+                source_module="network",
+            )
+
+    def analyze_iat_json(self, filepath: str) -> SharedResult:
+        """Analyze inter-arrival times from JSON file."""
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                records = json.load(f)
+            if not isinstance(records, list):
+                records = [records]
+
+            # Accept flat list of floats OR list of dicts with timestamp/inter_arrival_time
+            timestamps = []
+            for r in records:
+                if isinstance(r, (int, float)):
+                    timestamps.append(float(r))
+                elif isinstance(r, dict):
+                    if "timestamp" in r:
+                        timestamps.append(float(r["timestamp"]))
+                    elif "inter_arrival_time" in r:
+                        timestamps.append(float(r["inter_arrival_time"]))
+
+            iat_result = self.iat_detector.analyze(timestamps)
+            aggregated = SteganographicCostAggregator().aggregate({"iat": iat_result})
+
+            triggered_rules = []
+            if iat_result.get("detected"):
+                periodicity_score = iat_result.get("periodicity_score")
+                if periodicity_score is not None:
+                    triggered_rules.append({
+                        "rule": "iat_periodicity",
+                        "metric": "periodicity_score",
+                        "value": round(float(periodicity_score), 4),
+                        "threshold": 0.5,
+                        "direction": "above",
+                        "message": f"IAT periodicity_score={periodicity_score:.4f} > 0.5 — regularne odstępy między pakietami",
+                    })
+                else:
+                    conf = iat_result.get("confidence", 0.0)
+                    triggered_rules.append({
+                        "rule": "iat_steganography",
+                        "metric": "confidence",
+                        "value": round(float(conf), 4),
+                        "threshold": 0.5,
+                        "direction": "above",
+                        "message": f"IAT steganografia: confidence={conf:.4f} > 0.5",
+                    })
+
+            return SharedResult(
+                timestamp=now_iso(),
+                source_module="network",
+                file_name=os.path.basename(filepath),
+                file_path=os.path.abspath(filepath),
+                file_size_bytes=os.path.getsize(filepath),
+                file_format="JSON",
+                verdict=aggregated.get("verdict", "CLEAN"),
+                risk_score=int(aggregated.get("risk_score", 0)),
+                detectors_triggered=aggregated.get("detectors_triggered", 0),
+                detectors_total=1,
+                triggered_rules=triggered_rules,
+                detectors={
+                    "iat_steganography": {
+                        "confidence": iat_result.get("confidence", 0.0),
+                        "detected": iat_result.get("detected", False),
+                        "periodicity_score": iat_result.get("periodicity_score"),
+                        "samples_analyzed": len(timestamps),
+                    },
+                },
+                network_channel="iat",
+            )
+
+        except Exception as e:
+            return SharedResult(
+                timestamp=now_iso(),
+                file_name=os.path.basename(filepath),
+                file_path=os.path.abspath(filepath),
+                verdict="CLEAN",
+                risk_score=0,
+                errors=f"IAT analysis failed: {str(e)}",
+                source_module="network",
+            )
+
     def analyze_pcap(self, filepath: str) -> SharedResult:
         """Analyze PCAP/PCAPng capture for DNS tunneling, ICMP tunneling, and IAT channels."""
         # Lazy import: PcapParser requires dpkt or scapy; avoid breaking JSON analysis
@@ -276,6 +423,11 @@ class NetworkDetector:
                     "message": f"IAT steganografia: confidence={conf:.4f} > 0.5",
                 })
 
+        for _det in detector_results.values():
+            _det.pop("flagged_queries", None)
+            _det.pop("suspicious_packets", None)
+            _det.pop("raw_packets", None)
+
         return SharedResult(
             timestamp=now_iso(),
             source_module="network",
@@ -345,6 +497,20 @@ class NetworkDetector:
                 )
 
             if ext == ".json":
+                try:
+                    with open(filepath, "r", encoding="utf-8") as _f:
+                        _data = json.load(_f)
+                    _first = _data[0] if isinstance(_data, list) and _data else _data
+                except Exception:
+                    _first = None
+                if _first is None:
+                    _first = {}
+                if isinstance(_first, (int, float)):
+                    return self.analyze_iat_json(filepath)
+                if "icmp_type" in _first or "payload_size" in _first:
+                    return self.analyze_icmp_json(filepath)
+                if "inter_arrival_time" in _first or "iat" in _first:
+                    return self.analyze_iat_json(filepath)
                 return self.analyze_dns_json(filepath)
 
             if ext in (".pcap", ".pcapng"):

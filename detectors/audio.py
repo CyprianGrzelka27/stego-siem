@@ -93,7 +93,7 @@ class AudioDetector:
 
             triggered_rules = []
             parity_deviation = audio_result.get("score", 0.0)
-            if is_suspicious:
+            if is_suspicious or confidence > 0.5:
                 triggered_rules.append({
                     "rule": "group_parity",
                     "metric": "parity_deviation",

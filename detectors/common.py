@@ -8,6 +8,36 @@ from typing import Optional, Dict, Any, ClassVar
 from datetime import datetime, timezone
 
 
+_RULE_SHORT: dict = {
+    "chi_square":           "chi²",
+    "rs_analysis":          "RS",
+    "shannon_entropy":      "H",
+    "group_parity":         "parity_dev",
+    "parity_chi_test":      "parity_chi",
+    "dns_entropy":          "DNS_entropy",
+    "dns_subdomain_length": "subdomain_len",
+    "dns_base32":           "DNS_b32",
+    "dns_query_rate":       "DNS_rate",
+    "icmp_payload":         "ICMP",
+    "iat_periodicity":      "IAT",
+}
+
+# Rules whose metric value is a count — formatted as integer, not float
+_INT_VALUE_RULES: frozenset = frozenset({"dns_subdomain_length", "dns_base32"})
+
+
+def build_triggered_rules_summary(triggered_rules: list) -> str:
+    """Compact display string built from triggered_rules list (rule + value only)."""
+    parts = []
+    for r in triggered_rules:
+        rule = r.get("rule", "")
+        short = _RULE_SHORT.get(rule, rule)
+        val = r.get("value", 0)
+        fmt = str(int(val)) if rule in _INT_VALUE_RULES else f"{val:.3f}"
+        parts.append(f"{short}={fmt}")
+    return " | ".join(parts)
+
+
 @dataclass
 class SharedResult:
     """
@@ -49,6 +79,9 @@ class SharedResult:
     # Ordered list of rules that exceeded their threshold and contributed to the verdict
     triggered_rules: list = field(default_factory=list)
 
+    # Compact display string for Kibana columns — auto-computed in __post_init__
+    triggered_rules_summary: str = ""
+
     # Metadata
     warnings: list = field(default_factory=list)
 
@@ -65,8 +98,12 @@ class SharedResult:
         "timestamp", "event_type", "source_module",
         "file_name", "file_path", "file_size_bytes", "file_format",
         "verdict", "risk_score", "detectors_triggered", "detectors_total",
-        "detectors", "triggered_rules", "warnings", "network_channel",
+        "detectors", "triggered_rules", "triggered_rules_summary", "warnings", "network_channel",
     )
+
+    def __post_init__(self):
+        if not self.triggered_rules_summary and self.triggered_rules:
+            self.triggered_rules_summary = build_triggered_rules_summary(self.triggered_rules)
 
     def to_json_dict(self) -> dict:
         """

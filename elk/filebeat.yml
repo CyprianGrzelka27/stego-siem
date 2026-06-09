@@ -16,8 +16,9 @@ filebeat.inputs:
   # Don't read from start of file if restarting (prevent duplicates)
   ignore_older: 24h
 
-# Template setup — disabled because we installed it manually in ES
+# Template and ILM setup — disabled (mapping installed manually in ES)
 setup.template.enabled: false
+setup.ilm.enabled: false
 
 # Output to Elasticsearch
 output.elasticsearch:
@@ -25,8 +26,8 @@ output.elasticsearch:
   hosts:
     - "elasticsearch:9200"
 
-  # Index name with date pattern
-  index: "stego-events-%{+yyyy.MM.dd}"
+  # Fixed index — all events go to stego-events-test (nested mapping)
+  index: "stego-events-test"
 
   # Optional: Basic auth (uncomment if needed)
   # username: "elastic"
